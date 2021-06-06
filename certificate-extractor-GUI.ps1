@@ -10,16 +10,15 @@ Script PowerShell fonctionnant avec une interface graphique permettant de manipu
 Cet outil a comme objectif de :
     - simplifier l'extraction des autorités de certification intermédiaires et racine
     - simplifier la transformation d'un p12/pfx vers des crt/pem/cer
-    - récupérer la clef privé d'un p12/pfx
 
 Cet outil est un substitut plus pratique et simple que les commandes OpenSSL ou bien d'avoir à importer les p12/pfx dans le magasin de certificat pour pouvoir extraire ses composants.
 
 /!\ Le fonctionnement de l'outil s'appuie sur la commande certutil.exe qui limite le support à Windows.
 
 .NOTE
-    Version : 0.1
+    Version : 1.0
     Auteur  : Lucas MEYER
-    Github  : https://github.com/Meyer-Lucas
+    Github  : https://github.com/Meyer-Lucas/certificate-extractor-GUI
     Licence : MIT License
 
 #>
@@ -27,6 +26,7 @@ Cet outil est un substitut plus pratique et simple que les commandes OpenSSL ou 
 # Préparation du script pour une utilisation graphique
 Add-Type -AssemblyName system.windows.forms
 [System.Windows.Forms.Application]::EnableVisualStyles()
+
 
 # -------------------------------------------------- Variables globales ----------------------------------------------
 
@@ -38,7 +38,6 @@ Add-Type -AssemblyName system.windows.forms
 
 $CertificatsSHA1 = New-Object System.Collections.ArrayList
 $CertificatsExpiration = New-Object System.Collections.ArrayList
-$CertificatsClef = New-Object System.Collections.ArrayList
 $CertificatsEmetteur = New-Object System.Collections.ArrayList
 $CertificatsObjet = New-Object System.Collections.ArrayList
 $OrdreTriCertificat = New-Object System.Collections.ArrayList
@@ -53,10 +52,8 @@ function ResetGroupBoxCertificatListe {
     $GroupBoxCertificatListe.Enabled = $false
     $DataGridViewCertificatListe.Rows.ForEach({$DataGridViewCertificatListe.Rows.Remove($_)})
     $DataGridViewCertificatListe.Rows.ForEach({$DataGridViewCertificatListe.Rows.Remove($_)}) # Duplication de la ligne pour supprimer la ligne restante après première passe
-    $CheckBoxExportClef.Enabled = $false
     $CertificatsSHA1.Clear()
     $CertificatsExpiration.Clear()
-    $CertificatsClef.Clear()
     $CertificatsEmetteur.Clear()
     $CertificatsObjet.Clear()
     $OrdreTriCertificat.Clear()
@@ -75,15 +72,6 @@ function CompleteDataGridViewCertificats {
     
     $SortieCertutil | Select-String -CaseSensitive "sha1" | ForEach-Object { $CertificatsSHA1.Add($_.ToString().Split(" ")[-1]) }
     $SortieCertutil | Select-String -CaseSensitive "After" | ForEach-Object { $CertificatsExpiration.Add($_.ToString().Substring(12)) }
-    
-    $switch = $false
-    $SortieCertutil.ForEach({
-        if ($swicth) { 
-            if ($_ -match "^ ") { $CertificatsClef.Add("OUI") ; $CheckBoxExportClef.Enabled = $true }
-                           else { $CertificatsClef.Add("NON") }
-        }
-        $swicth = ($_ -match "^----------------")
-    })
 
     $switch = $true
     $SortieCertutil | Select-String -CaseSensitive "CN=" | ForEach-Object { 
@@ -120,8 +108,26 @@ function CompleteDataGridViewCertificats {
     # Ajout des certificats dans le DataGridView
     $i = 0
     $OrdreTriCertificat.ForEach({
-        $DataGridViewCertificatListe.Rows.Add($CertificatNiveau[$i], $CertificatsClef[$_], $CertificatsExpiration[$_], $CertificatsObjet[$_], $CertificatsEmetteur[$_])
+        $DataGridViewCertificatListe.Rows.Add($CertificatNiveau[$i], $CertificatsExpiration[$_], $CertificatsObjet[$_], $CertificatsEmetteur[$_])
         $i++
+    })
+}
+
+# Fonction chargée de renommée les certificats qui ont étés exportés
+function RenommeCertificat {
+    $Certificats = Get-ChildItem -File $RepertoireTemp.FullName
+    $Certificats.ForEach({ 
+        for ($i = 0 ; $i -lt $CertificatsSHA1.Count ; $i++) {
+            if ($_.ToString() -match $CertificatsSHA1[$i]) {
+                if ($CertificatsObjet[$i] -match "O=") { $Nom = $CertificatsObjet[$i].Substring($CertificatsObjet[$i].IndexOf("O=")+2).Split(",")[0].Replace("*","") }
+                                                     else { $Nom = $CertificatsObjet[$i].ToString().Split(",")[0].Substring(3).Replace("*","") }
+                if ($CertificatNiveau[$OrdreTriCertificat[$i]] -ne "?") { $Nom = $CertificatNiveau[$OrdreTriCertificat[$i]].ToString() + " - "  + $Nom }
+                $Nom += ".crt"
+                #Move-Item -Force $_.FullName -Destination ("" + $CertificatNiveau[$OrdreTriCertificat[$i]] + " - " + $Nom + ".crt")
+                Move-Item -Force $_.FullName -Destination $Nom
+            }
+        }
+        if ($_.Name -match "\.p12$") { Remove-Item $_.FullName }
     })
 }
 
@@ -241,7 +247,7 @@ $DataGridViewCertificatListe = New-Object System.Windows.Forms.DataGridView -Pro
     Height = 150
     Location = "10, 20"
     Font = $FontMin
-    ColumnCount = 5
+    ColumnCount = 4
     ColumnHeadersVisible = $true
     RowHeadersVisible = $false
     AllowUserToResizeRows = $false
@@ -256,25 +262,12 @@ $GroupBoxCertificatListe.Controls.Add($DataGridViewCertificatListe)
 
 # Définition des colonnes du DataGridView
 $DataGridViewCertificatListe.Columns[0].Name = "Niveau"
-$DataGridViewCertificatListe.Columns[1].Name = "Clé associée"
-$DataGridViewCertificatListe.Columns[2].Name = "Expiration"
-$DataGridViewCertificatListe.Columns[3].Name = "Objet"
-$DataGridViewCertificatListe.Columns[4].Name = "Emetteur"
+$DataGridViewCertificatListe.Columns[1].Name = "Expiration"
+$DataGridViewCertificatListe.Columns[2].Name = "Objet"
+$DataGridViewCertificatListe.Columns[3].Name = "Emetteur"
 
 # Empêchement de trier les différentes colonnes
 $DataGridViewCertificatListe.Columns.ForEach({ $_.SortMode = 0 })
-
-$CheckBoxExportClef = New-Object System.Windows.Forms.CheckBox -Property @{
-    Font = $FontMin
-    Text = 'Exporter le certificat avec clé associée au format p12 sans mot de passe'
-    Location = "10, 175"
-    Checked = $false
-    #Autosize = $true
-    Enabled = $false
-    Width = 250
-    Height = 40
-}
-$GroupBoxCertificatListe.Controls.Add($CheckBoxExportClef)
 
 $ButtonExportSelection = New-Object System.Windows.Forms.Button -Property @{
     Text = "Exporter la sélection"
@@ -291,6 +284,11 @@ $ButtonExport = New-Object System.Windows.Forms.Button -Property @{
     Autosize = $true
 }
 $GroupBoxCertificatListe.Controls.Add($ButtonExport)
+
+$FolderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{
+    RootFolder = 'MyComputer'
+    Description = "Où exporter la sélection ?"
+}
 
 
 # ----------------------------------------------- Evénements graphiques ----------------------------------------------
@@ -323,8 +321,37 @@ $ButtonValidationMotDePasse.add_Click({
     if (TestMotDePasse) { 
         $GroupBoxCertificatListe.Enabled = $true
         CompleteDataGridViewCertificats
+        $ButtonExport.Focus()
     } else {
         [System.Windows.Forms.MessageBox]::Show("Le mot de passe indiqué n'est pas bon !",'Erreur','OK','Error')
+    }
+})
+
+$ButtonExportSelection.add_Click({
+    if ($FolderBrowser.ShowDialog() -eq "OK") {
+        certutil.exe -p $TextBoxMotDePasse.Text -dump -split -silent $labelEmplacementCertificat.Text
+        RenommeCertificat
+
+        Get-ChildItem -File | ForEach-Object {
+            $NomFichier = $NomFichierTemp = $_.Name
+            if ($NomFichier -match "^[?|0-9]* - ") { $NomFichierTemp = $NomFichier.Substring(6) }
+            $NomFichierTemp = $NomFichierTemp.Substring(0, ($NomFichierTemp.Length - 4))
+            $DataGridViewCertificatListe.SelectedRows.ForEach({
+                if ($_.Cells.Item("Objet").Value -match $NomFichierTemp) { Move-Item $NomFichier -Destination $FolderBrowser.SelectedPath -Force }
+            })
+        }
+
+        if ($DataGridViewCertificatListe.SelectedRows.Count -eq 1) { [System.Windows.Forms.MessageBox]::Show("L'export du certificat sélectionné est terminée.", "Tâche terminée", "OK","Info") }
+        else { [System.Windows.Forms.MessageBox]::Show("L'export des certificats sélectionnés est terminée.", "Tâche terminée", "OK","Info") }
+    }
+})
+
+$ButtonExport.add_Click({
+    if ($FolderBrowser.ShowDialog() -eq "OK") {
+        certutil.exe -p $TextBoxMotDePasse.Text -dump -split -silent $labelEmplacementCertificat.Text
+        RenommeCertificat
+        Move-Item *.crt -Destination $FolderBrowser.SelectedPath -Force
+        [System.Windows.Forms.MessageBox]::Show("L'export de tous les certificats est terminée.", "Tâche terminée", "OK","Info")
     }
 })
 
@@ -332,4 +359,10 @@ $ButtonValidationMotDePasse.add_Click({
 # ---------------------------------------------- Affichage de la fenêtre ---------------------------------------------
 
 
-$fenêtreCertificateExtractor.ShowDialog()
+$RepertoireTemp = New-Item -ItemType Directory ($env:TEMP+"\Certificate-Extractor-" + (Get-Random -Maximum 99999))
+Set-Location $RepertoireTemp.FullName
+
+$fenêtreCertificateExtractor.ShowDialog() | Out-Null
+
+Set-Location $env:TEMP
+Remove-Item -Recurse -Path $RepertoireTemp.FullName
