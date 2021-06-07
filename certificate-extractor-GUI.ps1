@@ -16,7 +16,7 @@ Cet outil est un substitut plus pratique et simple que les commandes OpenSSL ou 
 /!\ Le fonctionnement de l'outil s'appuie sur la commande certutil.exe qui limite le support à Windows.
 
 .NOTE
-    Version : 1.0
+    Version : 1.1
     Auteur  : Lucas MEYER
     Github  : https://github.com/Meyer-Lucas/certificate-extractor-GUI
     Licence : MIT License
@@ -52,6 +52,7 @@ function ResetGroupBoxCertificatListe {
     $GroupBoxCertificatListe.Enabled = $false
     $DataGridViewCertificatListe.Rows.ForEach({$DataGridViewCertificatListe.Rows.Remove($_)})
     $DataGridViewCertificatListe.Rows.ForEach({$DataGridViewCertificatListe.Rows.Remove($_)}) # Duplication de la ligne pour supprimer la ligne restante après première passe
+    $CheckBoxEnregistrerMemeRepertoire.Checked = $true
     $CertificatsSHA1.Clear()
     $CertificatsExpiration.Clear()
     $CertificatsEmetteur.Clear()
@@ -115,15 +116,15 @@ function CompleteDataGridViewCertificats {
 
 # Fonction chargée de renommée les certificats qui ont étés exportés
 function RenommeCertificat {
+    param([string]$Repertoire)
     $Certificats = Get-ChildItem -File $RepertoireTemp.FullName
     $Certificats.ForEach({ 
         for ($i = 0 ; $i -lt $CertificatsSHA1.Count ; $i++) {
             if ($_.ToString() -match $CertificatsSHA1[$i]) {
-                if ($CertificatsObjet[$i] -match "O=") { $Nom = $CertificatsObjet[$i].Substring($CertificatsObjet[$i].IndexOf("O=")+2).Split(",")[0].Replace("*","") }
-                                                     else { $Nom = $CertificatsObjet[$i].ToString().Split(",")[0].Substring(3).Replace("*","") }
+                $Nom = $CertificatsObjet[$i].Substring($CertificatsObjet[$i].IndexOf("CN=")).Split(",")[0].Substring(3).Replace("*","_")
+                if ($CertificatsObjet[$i] -match "O=") { $Nom += " (" + $CertificatsObjet[$i].Substring($CertificatsObjet[$i].IndexOf("O=")+2).Split(",")[0].Replace("*","_") + ")" }
                 if ($CertificatNiveau[$OrdreTriCertificat[$i]] -ne "?") { $Nom = $CertificatNiveau[$OrdreTriCertificat[$i]].ToString() + " - "  + $Nom }
                 $Nom += ".crt"
-                #Move-Item -Force $_.FullName -Destination ("" + $CertificatNiveau[$OrdreTriCertificat[$i]] + " - " + $Nom + ".crt")
                 Move-Item -Force $_.FullName -Destination $Nom
             }
         }
@@ -269,6 +270,16 @@ $DataGridViewCertificatListe.Columns[3].Name = "Emetteur"
 # Empêchement de trier les différentes colonnes
 $DataGridViewCertificatListe.Columns.ForEach({ $_.SortMode = 0 })
 
+$CheckBoxEnregistrerMemeRepertoire = New-Object System.Windows.Forms.CheckBox -Property @{
+    Font = $FontMin
+    Text = 'Exporter les certificats dans le même répertoire que le répertoire du certificat sélectionné'
+    Location = "10, 175"
+    Checked = $true
+    Width = 275
+    Height = 40
+}
+$GroupBoxCertificatListe.Controls.Add($CheckBoxEnregistrerMemeRepertoire)
+
 $ButtonExportSelection = New-Object System.Windows.Forms.Button -Property @{
     Text = "Exporter la sélection"
     Location = (""+($LargeurFenêtre - 280)+", 178")
@@ -328,16 +339,21 @@ $ButtonValidationMotDePasse.add_Click({
 })
 
 $ButtonExportSelection.add_Click({
-    if ($FolderBrowser.ShowDialog() -eq "OK") {
+    if (!$CheckBoxEnregistrerMemeRepertoire.Checked) {
+        if ($FolderBrowser.ShowDialog() -eq "OK") { $Repertoire = $FolderBrowser.SelectedPath } 
+                                             else { $Repertoire = $null }
+    } else { $Repertoire = (Split-Path -path $OpenFileDialog.FileName) }
+    
+    if ($Repertoire -ne $null) {
         certutil.exe -p $TextBoxMotDePasse.Text -dump -split -silent $labelEmplacementCertificat.Text
         RenommeCertificat
 
         Get-ChildItem -File | ForEach-Object {
             $NomFichier = $NomFichierTemp = $_.Name
             if ($NomFichier -match "^[?|0-9]* - ") { $NomFichierTemp = $NomFichier.Substring(6) }
-            $NomFichierTemp = $NomFichierTemp.Substring(0, ($NomFichierTemp.Length - 4))
+            $NomFichierTemp = $NomFichierTemp.Substring(0, ($NomFichierTemp.IndexOf(" (")))
             $DataGridViewCertificatListe.SelectedRows.ForEach({
-                if ($_.Cells.Item("Objet").Value -match $NomFichierTemp) { Move-Item $NomFichier -Destination $FolderBrowser.SelectedPath -Force }
+                if ($_.Cells.Item("Objet").Value -match $NomFichierTemp) { Move-Item $NomFichier -Destination $Repertoire -Force }
             })
         }
 
@@ -347,10 +363,15 @@ $ButtonExportSelection.add_Click({
 })
 
 $ButtonExport.add_Click({
-    if ($FolderBrowser.ShowDialog() -eq "OK") {
+    if (!$CheckBoxEnregistrerMemeRepertoire.Checked) {
+        if ($FolderBrowser.ShowDialog() -eq "OK") { $Repertoire = $FolderBrowser.SelectedPath } 
+                                             else { $Repertoire = $null }
+    } else { $Repertoire = (Split-Path -path $OpenFileDialog.FileName) }
+    
+    if ($Repertoire -ne $null) {
         certutil.exe -p $TextBoxMotDePasse.Text -dump -split -silent $labelEmplacementCertificat.Text
         RenommeCertificat
-        Move-Item *.crt -Destination $FolderBrowser.SelectedPath -Force
+        Move-Item *.crt -Destination $Repertoire -Force
         [System.Windows.Forms.MessageBox]::Show("L'export de tous les certificats est terminée.", "Tâche terminée", "OK","Info")
     }
 })
