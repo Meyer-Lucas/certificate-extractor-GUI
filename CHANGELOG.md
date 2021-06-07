@@ -1,4 +1,4 @@
-#CHANGELOG des différentes versions de Certificate Extractor GUI
+# CHANGELOG des différentes versions de Certificate Extractor GUI
 
 ## 1.1
 Ajout de fonctionnalités :
