@@ -1,5 +1,13 @@
 #CHANGELOG des différentes versions de Certificate Extractor GUI
 
+## 2.0
+Ajout de fonctionnalités :
+* Support des formats p7b, pem, crt, cer et txt (non implémenté pour le moment)
+* Recherche des certificats de la chaîne de certification manquant dans le magasin de certificats si disponible
+
+Correction de bug :
+* La sélection d'export de certificat pouvait ne pas fonctionner correctement pour les CN court suite à la nouvelle nomenclature introduite en v1.1
+
 ## 1.1
 Ajout de fonctionnalités :
 * Ajout d'une checkbox permettant de sélectionner s'il faut enregistrer l'export de certificat dans le même répertoire que le répertoire sélectionner
