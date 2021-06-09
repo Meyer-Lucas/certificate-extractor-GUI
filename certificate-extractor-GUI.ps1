@@ -1,22 +1,22 @@
 <#
 
 .SYNOPSIS
-Script Powershell GUI permettant de facilement pouvoir extraire tous les éléments ou seulement certains des pfx/p12.
+Script Powershell GUI permettant de facilement pouvoir extraire tous les éléments ou seulement certains des pfx/p12/p7b/pem/crt/cer/txt.
 
 .DESCRIPTION
 
 Script PowerShell fonctionnant avec une interface graphique permettant de manipuler les certificats.
 
 Cet outil a comme objectif de :
-    - simplifier l'extraction des autorités de certification intermédiaires et racine
-    - simplifier la transformation d'un p12/pfx vers des crt/pem/cer
+    - simplifier l'extraction des autorités de certification intermédiaires et racine pour les formats de certificat standards
+    - simplifier la transformation d'un p12/pfx vers des crt
 
-Cet outil est un substitut plus pratique et simple que les commandes OpenSSL ou bien d'avoir à importer les p12/pfx dans le magasin de certificat pour pouvoir extraire ses composants.
+Cet outil est un substitut plus pratique et simple que les commandes OpenSSL ou bien d'avoir à importer les p12/pfx dans le magasin de certificat pour pouvoir extraire ses certificats.
 
-/!\ Le fonctionnement de l'outil s'appuie sur la commande certutil.exe qui limite le support à Windows.
+/!\ Le fonctionnement de l'outil s'appuie sur la commande certutil.exe qui limite le support à Windows ainsi que le magasin de certificat de Windows.
 
 .NOTE
-    Version : 1.1
+    Version : 2.0
     Auteur  : Lucas MEYER
     Github  : https://github.com/Meyer-Lucas/certificate-extractor-GUI
     Licence : MIT License
@@ -31,17 +31,17 @@ Add-Type -AssemblyName system.windows.forms
 # -------------------------------------------------- Variables globales ----------------------------------------------
 
 
-[String]$Font = "Segoe UI, 11"
-[String]$FontMin = "Segoe UI, 8"
-[Int]$LargeurFenêtre = 600
-[Int]$HauteurFenêtre = 495
+[String]$Font           = "Segoe UI, 11"
+[String]$FontMin        = "Segoe UI, 8"
+[Int]$LargeurFenêtre    = 600
+[Int]$HauteurFenêtre    = 495
 
-$CertificatsSHA1 = New-Object System.Collections.ArrayList
-$CertificatsExpiration = New-Object System.Collections.ArrayList
-$CertificatsEmetteur = New-Object System.Collections.ArrayList
-$CertificatsObjet = New-Object System.Collections.ArrayList
-$OrdreTriCertificat = New-Object System.Collections.ArrayList
-$CertificatNiveau = New-Object System.Collections.ArrayList
+$CertificatsSHA1        = New-Object System.Collections.ArrayList
+$CertificatsExpiration  = New-Object System.Collections.ArrayList
+$CertificatsEmetteur    = New-Object System.Collections.ArrayList
+$CertificatsObjet       = New-Object System.Collections.ArrayList
+$OrdreTriCertificat     = New-Object System.Collections.ArrayList
+$CertificatNiveau       = New-Object System.Collections.ArrayList
 
 
 # ----------------------------------------------------- Fonctions ----------------------------------------------------
@@ -57,8 +57,6 @@ function ResetGroupBoxCertificatListe {
     $CertificatsExpiration.Clear()
     $CertificatsEmetteur.Clear()
     $CertificatsObjet.Clear()
-    $OrdreTriCertificat.Clear()
-    $CertificatNiveau.Clear()
 }
 
 # Vérification que le mot de passe fourni est bien le bon pour le certificat choisi
@@ -67,8 +65,8 @@ function TestMotDePasse {
     return $?
 }
 
-# Complète la DataGridView avec les différents certificats trouvés
-function CompleteDataGridViewCertificats {
+# Parsing des pfx/p12
+function ParsingPfxP12 {
     $SortieCertutil = certutil.exe -p $TextBoxMotDePasse.Text -dump $labelEmplacementCertificat.Text
     
     $SortieCertutil | Select-String -CaseSensitive "sha1" | ForEach-Object { $CertificatsSHA1.Add($_.ToString().Split(" ")[-1]) }
@@ -81,30 +79,160 @@ function CompleteDataGridViewCertificats {
                 else { $CertificatsObjet.Add($temp) }
         $switch = !$switch
     }
+    
+    certutil.exe -p $TextBoxMotDePasse.Text -dump -split -silent $labelEmplacementCertificat.Text
+}
 
-    # Recherche d'un certificat racine et classement des certificats tels que donnés par certutil
-    for ($i = 0 ; $i -lt $CertificatsEmetteur.Count ; $i++) {
-        if ($CertificatsEmetteur[$i] -eq $CertificatsObjet[$i]) { $OrdreTriCertificat.Add($i) }
+# Parsing de la sortie de certutil pour tous les autres types de certificats
+function ParsingCertsCertutil {
+    param($SortieCertutil)
+
+    $objet = ""
+    $emetteur = ""
+
+    # Cette variable va retenir le numéro du bloc où il y a 4 espaces en début, le 2ème bloc correspond à l'émetteur tandis que le 3ème correspond à l'objet
+    $BlocsEspaces = 0
+    # Variable pour retenir si l'on parse un bloc avec 4 espaces
+    $InterieurBloc = $false
+
+    $SortieCertutil.ForEach({
+        if ($_ -match "^    ") {
+            if (!$InterieurBloc) { $BlocsEspaces++ }
+            $InterieurBloc = $true
+        } else { $InterieurBloc = $false }
+        
+        if ($InterieurBloc -and $BlocsEspaces -eq 2) { $emetteur += $_.Trim() + ", " }
+        if ($InterieurBloc -and $BlocsEspaces -eq 3) { $objet += $_.Trim() + ", " }
+    })
+
+    $CertificatsObjet.Add($objet.Substring(0,$objet.Length-2))
+    $CertificatsEmetteur.Add($emetteur.Substring(0,$emetteur.Length-2))
+    $CertificatsExpiration.Add(($SortieCertutil -match "NotAfter")[0].Substring(($SortieCertutil -match "NotAfter")[0].IndexOf(":")+1).Trim())
+    $CertificatsSHA1.Add(($SortieCertutil -match "(sha1)")[-1].Split(" ")[-1])
+}
+
+# Parsing des p7b
+function ParsingP7b {
+    $SortieCertutil = certutil.exe -dump -split $labelEmplacementCertificat.Text
+
+    $DebutSectionCertificat = New-Object System.Collections.ArrayList
+    $FinSectionCertificat = New-Object System.Collections.ArrayList
+
+    for ($i = 0; $i -lt $SortieCertutil.Length; $i++) {
+        if ($SortieCertutil[$i] -match "================") { $DebutSectionCertificat.Add($i) }
+        if ($SortieCertutil[$i] -match "----------------") { $FinSectionCertificat.Add($i) }
     }
-    if ($OrdreTriCertificat.Count -ne 0) {
-        $CertificatNiveau.Add("0")
-        $antiInfiniteLoop = 0
-        $i = 0
-        $niveau = 1
-        while ($OrdreTriCertificat.Count -ne $CertificatsEmetteur.Count -and $antiInfiniteLoop -lt 1000) {
-            if ($CertificatsEmetteur[$i] -eq $CertificatsObjet[$OrdreTriCertificat[-1]] -and $OrdreTriCertificat -notcontains $i) { 
-                $OrdreTriCertificat.Add($i) 
-                $CertificatNiveau.Add($niveau)
-                $niveau++
+
+    for ($i = 0; $i -lt $DebutSectionCertificat.Count; $i++) { ParsingCertsCertutil -SortieCertutil ($SortieCertutil[($DebutSectionCertificat[$i]+1)..($FinSectionCertificat[$i]-1)]) }
+}
+
+# Parsing des autres certificats, vérifie si c'est encodé en DER et si ce n'est pas le cas une identification de la présence de plusieurs certificats a lieu
+function ParsingCerts {
+    $Certificat = Get-Content $OpenFileDialog.FileName
+
+    # Si le certificat sélectionné est encodé en base64
+    if ($Certificat -match "-----BEGIN CERTIFICATE-----") {
+        # Identification des possibles différents certificats contenus dans le fichier
+        # Vérification si le fichier ne contient qu'une seule ligne (l'extraction sera différente suivant le cas)
+        if ($Certificat.Count -eq 1) {
+            # Recherche et isolement des différents certificats pour ensuite récupérer les informations de chacuns d'entre eux
+            while ($Certificat.IndexOf("------") -gt 0) {
+                $Jonction = $Certificat.IndexOf("------") + 5
+                $Certificat.Substring(0, $Jonction) | Out-File -FilePath certTemp.pem
+                ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split certTemp.pem)
+                Remove-Item certTemp.pem
+                $Certificat = $Certificat.Substring($Jonction)
             }
-            $i++
-            if ($i -eq $CertificatsEmetteur.Count) { $i = 0 }
-            $antiInfiniteLoop++
+            $Certificat | Out-File -FilePath certTemp.pem
+            ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split certTemp.pem)
+            Remove-Item certTemp.pem
+        } else {
+            $DebutCert = New-Object System.Collections.ArrayList
+            $FinCert = New-Object System.Collections.ArrayList
+            # Recherche de l'emplacement des différents certificats
+            for ($i = 0; $i -lt $Certificat.Count; $i++) {
+                if ($Certificat[$i] -match "-----BEGIN CERTIFICATE-----") { $DebutCert.Add($i) }
+                if ($Certificat[$i] -match "-----END CERTIFICATE-----") { $FinCert.Add($i) }
+            }
+            # Obtention des différents certificats
+            for ($i = 0; $i -lt $DebutCert.Count; $i++) {
+                $Certificat[$DebutCert[$i]..$FinCert[$i]] | Out-File -FilePath certTemp.pem
+                ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split certTemp.pem)
+                Remove-Item certTemp.pem
+            }
         }
-    } else {
-        $i = 0
-        $CertificatsEmetteur.ForEach({$CertificatNiveau.Add("?") ; $OrdreTriCertificat.Add($i) ; $i++})
+    } else { ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split $OpenFileDialog.FileName) }
+}
+
+# Recherche de la présence d'un certificat racine
+function PresenceCertificatRacine {
+    $sortie = $false
+
+    for ($i = 0 ; $i -lt $CertificatsEmetteur.Count ; $i++) {
+        if ($CertificatsEmetteur[$i] -eq $CertificatsObjet[$i]) { $sortie = $true }
     }
+
+    return $sortie
+}
+
+# Classement des certificats par rapport aux émetteurs et objets
+function TrieDesCertificats {
+    $OrdreTriCertificat.Clear()
+    $OrdreTriCertificat.Add(0)
+    $AntiInfiniteLoop = 30
+    while ($CertificatsEmetteur.Count -gt 1 -and $OrdreTriCertificat.Count -lt $CertificatsEmetteur.Count -and $AntiInfiniteLoop) {
+        for ($i = 1; $i -lt $CertificatsEmetteur.Count; $i++) {
+            # Si le certificat actuel a un émetteur qui correspond à l'objet du certificat le plus bas dans le tri temporaire et qu'il n'a pas déjà été ajouté à la liste
+            if ($CertificatsEmetteur[$i] -eq $CertificatsObjet[$OrdreTriCertificat[-1]] -and $OrdreTriCertificat -notcontains $i) { $OrdreTriCertificat.Add($i) }
+            # Sinon si l'objet du certificat actuel correspond à l'émetteur du premier certificat dans le tri temporaire et qu'il n'a pas déjà été ajouté à la liste
+            elseif ($CertificatsObjet[$i] -eq $CertificatsEmetteur[$OrdreTriCertificat[0]] -and $Script:OrdreTriCertificat -notcontains $i) { $OrdreTriCertificat.Insert(0,$i) }
+        }
+        $AntiInfiniteLoop--
+    }
+
+    # Définition des niveaux si un certificat racine est présent
+    $CertificatNiveau.Clear()
+    if (PresenceCertificatRacine) { 
+        for ($i = 0; $i -lt $CertificatsEmetteur.Count; $i++) { $CertificatNiveau.Add($i) }
+    } else {
+        for ($i = 0; $i -lt $CertificatsEmetteur.Count; $i++) { $CertificatNiveau.Add("?") }
+    }
+}
+
+# Complète la chaîne de certificatation en se basant sur les certificats contenus dans le magasin de certification
+function AjoutChaineDeCertification {
+    $reussi = $false
+
+    $CACert = ((Get-ChildItem -Recurse Cert:\) -match $CertificatsEmetteur[$OrdreTriCertificat[0]])[0]
+
+    if ($CACert -ne $null) {
+        $reussi = $true
+        $CertificatsObjet.add($CACert.Subject)
+        $CertificatsEmetteur.Add($CACert.Issuer)
+        $CertificatsSHA1.Add($CACert.Thumbprint)
+        $CertificatsExpiration.Add($CACert.NotAfter)
+        Export-Certificate -Cert $CACert -Type CERT -FilePath (""+$CACert.Thumbprint+".crt")
+    }
+
+    return $reussi
+}
+
+# Complète la DataGridView avec les différents certificats trouvés
+function CompleteDataGridViewCertificats {
+    switch -Regex ($OpenFileDialog.FileName) {
+        ".*\.p(12|fx)$" { ParsingPfxP12 }
+        ".*\.p7b$" { ParsingP7b }
+        default { ParsingCerts }
+        #default { ParsingCertsCertutil -SortieCertutil (certutil.exe -dump $OpenFileDialog.FileName) }
+    }
+    
+    if ($CertificatsSHA1.Count -ne 0) {
+        do {
+            TrieDesCertificats
+            $boucle = $false
+            if (!(PresenceCertificatRacine)) { $boucle = AjoutChaineDeCertification }
+        } while ($boucle)
+    } else { [System.Windows.Forms.MessageBox]::Show("Le certificat sélectionné ne semble pas être correct !",'Erreur','OK','Error') }
     
     # Ajout des certificats dans le DataGridView
     $i = 0
@@ -114,21 +242,20 @@ function CompleteDataGridViewCertificats {
     })
 }
 
-# Fonction chargée de renommée les certificats qui ont étés exportés
-function RenommeCertificat {
-    param([string]$Repertoire)
+# Fonction chargée de renommer les certificats qui ont étés sélectionnés et de les exporter
+function RenommeCertificatExport {
+    param([string]$RepertoireCible, $CertificatsSHA1Export = $CertificatsSHA1)
     $Certificats = Get-ChildItem -File $RepertoireTemp.FullName
     $Certificats.ForEach({ 
         for ($i = 0 ; $i -lt $CertificatsSHA1.Count ; $i++) {
-            if ($_.ToString() -match $CertificatsSHA1[$i]) {
+            if ($_.ToString() -match $CertificatsSHA1[$i] -and $CertificatsSHA1Export -contains $CertificatsSHA1[$i]) {
                 $Nom = $CertificatsObjet[$i].Substring($CertificatsObjet[$i].IndexOf("CN=")).Split(",")[0].Substring(3).Replace("*","_")
                 if ($CertificatsObjet[$i] -match "O=") { $Nom += " (" + $CertificatsObjet[$i].Substring($CertificatsObjet[$i].IndexOf("O=")+2).Split(",")[0].Replace("*","_") + ")" }
                 if ($CertificatNiveau[$OrdreTriCertificat[$i]] -ne "?") { $Nom = $CertificatNiveau[$OrdreTriCertificat[$i]].ToString() + " - "  + $Nom }
                 $Nom += ".crt"
-                Move-Item -Force $_.FullName -Destination $Nom
+                Copy-Item -Force $_.FullName -Destination ($RepertoireCible + "\" + $Nom)
             }
         }
-        if ($_.Name -match "\.p12$") { Remove-Item $_.FullName }
     })
 }
 
@@ -204,7 +331,7 @@ $labelEmplacementCertificat = New-Object System.Windows.Forms.Label -Property @{
 $GroupBoxCertificat.Controls.Add($labelEmplacementCertificat)
 
 $OpenFileDialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{
-	Filter = 'Certificat (*.pfx ou *.p12)|*.pfx;*.p12'
+	Filter = 'Certificat (*.pfx; *.p12; *.p7b; *.pem; *.crt; *.cer; *.txt)|*.pfx;*.p12;*.p7b;*.pem;*.crt;*.cer;*.txt'
     FileName = ""
     Title = "Choix du certificat pour Certificate Extractor"
 }
@@ -308,10 +435,20 @@ $FolderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog -Property @
 $buttonSélectionCertificat.add_Click({
     if ($OpenFileDialog.ShowDialog() -eq "OK") {
         $labelEmplacementCertificat.Text = $OpenFileDialog.FileName
-        $GroupBoxMotDePasse.Enabled = $true
-        $TextBoxMotDePasse.Text = ""
-        ResetGroupBoxCertificatListe
-        $TextBoxMotDePasse.Focus()
+        
+        if ($OpenFileDialog.FileName -match ".*\.p(12|fx)$") {
+            $GroupBoxMotDePasse.Enabled = $true
+            $TextBoxMotDePasse.Text = ""
+            ResetGroupBoxCertificatListe
+            $TextBoxMotDePasse.Focus()
+        } else {
+            $GroupBoxMotDePasse.Enabled = $false
+            $TextBoxMotDePasse.Text = ""
+            ResetGroupBoxCertificatListe
+            CompleteDataGridViewCertificats
+            $GroupBoxCertificatListe.Enabled = $true
+            $ButtonExport.Focus()
+        }
     }
 })
 
@@ -345,17 +482,10 @@ $ButtonExportSelection.add_Click({
     } else { $Repertoire = (Split-Path -path $OpenFileDialog.FileName) }
     
     if ($Repertoire -ne $null) {
-        certutil.exe -p $TextBoxMotDePasse.Text -dump -split -silent $labelEmplacementCertificat.Text
-        RenommeCertificat
+        $CertificatsSHA1Selectionne = New-Object System.Collections.ArrayList
+        $DataGridViewCertificatListe.SelectedRows.ForEach({ $CertificatsSHA1Selectionne.Add($CertificatsSHA1[$CertificatsObjet.IndexOf($_.Cells.Item("Objet").Value)]) })
 
-        Get-ChildItem -File | ForEach-Object {
-            $NomFichier = $NomFichierTemp = $_.Name
-            if ($NomFichier -match "^[?|0-9]* - ") { $NomFichierTemp = $NomFichier.Substring(6) }
-            $NomFichierTemp = $NomFichierTemp.Substring(0, ($NomFichierTemp.IndexOf(" (")))
-            $DataGridViewCertificatListe.SelectedRows.ForEach({
-                if ($_.Cells.Item("Objet").Value -match $NomFichierTemp) { Move-Item $NomFichier -Destination $Repertoire -Force }
-            })
-        }
+        RenommeCertificatExport -RepertoireCible $Repertoire -CertificatsSHA1Export $CertificatsSHA1Selectionne
 
         if ($DataGridViewCertificatListe.SelectedRows.Count -eq 1) { [System.Windows.Forms.MessageBox]::Show("L'export du certificat sélectionné est terminée.", "Tâche terminée", "OK","Info") }
         else { [System.Windows.Forms.MessageBox]::Show("L'export des certificats sélectionnés est terminée.", "Tâche terminée", "OK","Info") }
@@ -369,9 +499,8 @@ $ButtonExport.add_Click({
     } else { $Repertoire = (Split-Path -path $OpenFileDialog.FileName) }
     
     if ($Repertoire -ne $null) {
-        certutil.exe -p $TextBoxMotDePasse.Text -dump -split -silent $labelEmplacementCertificat.Text
-        RenommeCertificat
-        Move-Item *.crt -Destination $Repertoire -Force
+        RenommeCertificatExport -RepertoireCible $Repertoire
+
         [System.Windows.Forms.MessageBox]::Show("L'export de tous les certificats est terminée.", "Tâche terminée", "OK","Info")
     }
 })
