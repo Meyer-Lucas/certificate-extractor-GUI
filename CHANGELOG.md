@@ -2,8 +2,9 @@
 
 ## 2.0
 Ajout de fonctionnalités :
-* Support des formats p7b, pem, crt, cer et txt (non implémenté pour le moment)
+* Support des formats p7b, pem, crt, cer et txt
 * Recherche des certificats de la chaîne de certification manquant dans le magasin de certificats si disponible
+* Lorsque le certificat sélectionné n'est pas un p12/pfx, le mot de passe n'est pas demandé à être défini
 
 Correction de bug :
 * La sélection d'export de certificat pouvait ne pas fonctionner correctement pour les CN court suite à la nouvelle nomenclature introduite en v1.1
