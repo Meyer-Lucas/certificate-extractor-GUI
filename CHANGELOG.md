@@ -1,4 +1,8 @@
-# CHANGELOG des différentes versions de Certificate Extractor GUI
+#CHANGELOG des différentes versions de Certificate Extractor GUI
+
+## 2.1
+Ajout de fonctionnalité :
+* Ajout de la possibilité de sélectionner un certificat via drag and drop, des indications visuelles montrent l'emplacement de la zone de drop et la couleur indique si le drop est possible
 
 ## 2.0
 Ajout de fonctionnalités :
@@ -18,7 +22,6 @@ Correction de bug :
 * Lorsque plusieurs certificats contiennent un champ "O=" alors une différence est réalisée sur le nom d'export du certificat
 
 ## 1.0
-
 Version initiale permettant de :
 * Sélectionner un p12/pfx pour voir les différents certificats qu'il contient
 * Exporter tous les certificats que contient le p12/pfx dans un répertoire donné

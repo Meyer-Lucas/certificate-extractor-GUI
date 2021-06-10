@@ -16,7 +16,7 @@ Cet outil est un substitut plus pratique et simple que les commandes OpenSSL ou 
 /!\ Le fonctionnement de l'outil s'appuie sur la commande certutil.exe qui limite le support à Windows ainsi que le magasin de certificat de Windows.
 
 .NOTE
-    Version : 2.0
+    Version : 2.1
     Auteur  : Lucas MEYER
     Github  : https://github.com/Meyer-Lucas/certificate-extractor-GUI
     Licence : MIT License
@@ -128,7 +128,7 @@ function ParsingP7b {
 
 # Parsing des autres certificats, vérifie si c'est encodé en DER et si ce n'est pas le cas une identification de la présence de plusieurs certificats a lieu
 function ParsingCerts {
-    $Certificat = Get-Content $OpenFileDialog.FileName
+    $Certificat = Get-Content $labelEmplacementCertificat.Text
 
     # Si le certificat sélectionné est encodé en base64
     if ($Certificat -match "-----BEGIN CERTIFICATE-----") {
@@ -161,7 +161,7 @@ function ParsingCerts {
                 Remove-Item certTemp.pem
             }
         }
-    } else { ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split $OpenFileDialog.FileName) }
+    } else { ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split $labelEmplacementCertificat.Text) }
 }
 
 # Recherche de la présence d'un certificat racine
@@ -219,11 +219,10 @@ function AjoutChaineDeCertification {
 
 # Complète la DataGridView avec les différents certificats trouvés
 function CompleteDataGridViewCertificats {
-    switch -Regex ($OpenFileDialog.FileName) {
+    switch -Regex ($labelEmplacementCertificat.Text) {
         ".*\.p(12|fx)$" { ParsingPfxP12 }
         ".*\.p7b$" { ParsingP7b }
         default { ParsingCerts }
-        #default { ParsingCertsCertutil -SortieCertutil (certutil.exe -dump $OpenFileDialog.FileName) }
     }
     
     if ($CertificatsSHA1.Count -ne 0) {
@@ -274,6 +273,7 @@ $fenêtreCertificateExtractor = New-Object System.Windows.Forms.Form -Property @{
     MaximizeBox = $false
     FormBorderStyle = "FixedSingle"
     Padding = 0
+    AllowDrop = $true
 }
 
 # -------------------- GroupBoxes
@@ -285,6 +285,7 @@ $GroupBoxCertificat = New-Object System.Windows.Forms.GroupBox -Property @{
     Width = $LargeurFenêtre - 30
     Padding = 0
     Font = "Segoe UI, 10"
+    AllowDrop = $true
 }
 $fenêtreCertificateExtractor.Controls.Add($GroupBoxCertificat)
 
@@ -317,6 +318,7 @@ $buttonSélectionCertificat = New-Object System.Windows.Forms.Button -Property @{
     Location = "20, 38"
     Font = $Font
     Autosize = $true
+    BackColor = "#E1E1E1"
 }
 $GroupBoxCertificat.Controls.Add($buttonSélectionCertificat)
 
@@ -432,11 +434,56 @@ $FolderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog -Property @
 # ----------------------------------------------- Evénements graphiques ----------------------------------------------
 
 
+# Lorsque qu'un drag de fichier rentre dans la fenêtre, affichage du premier groupbox dans une couleur afin d'indiquer que le fichier peut être drop
+# Bleu clair si le drag ne contient qu'un fichier au format accepté, sinon rouge
+$fenêtreCertificateExtractor.add_DragOver({
+    if ($_.Data.GetFileDropList().Count -eq 1 -and $_.Data.GetFileDropList() -match ".*\.(pfx|p12|pem|p7b|cer|crt|txt)$") {
+        $GroupBoxCertificat.BackColor = "#DFDFFF" # Bleu clair
+    } else {
+        $GroupBoxCertificat.BackColor = "#FFDFDF" # Rouge clair
+    }
+})
+
+# Lorsque le drag sort de la fenêtre, remise de la couleur par défaut du groupbox
+$fenêtreCertificateExtractor.add_DragLeave({
+    $GroupBoxCertificat.BackColor = "#F0F0F0" # Gris par défaut
+})
+
+# Lorsque le drag parvient à la groupbox, affichage que le drop est possible si les conditions du fichier est respecté
+$GroupBoxCertificat.add_DragEnter({
+    if ($_.Data.GetFileDropList().Count -eq 1 -and $_.Data.GetFileDropList() -match ".*\.(pfx|p12|pem|p7b|cer|crt|txt)$") {
+        $GroupBoxCertificat.BackColor = "#DFDFFF" # Bleu clair
+        $_.Effect = "Copy"
+    } else {
+        $GroupBoxCertificat.BackColor = "#FFDFDF" # Rouge clair
+    }
+})
+
+# Lorsque le drop arrive dans le groupbox
+$GroupBoxCertificat.add_DragDrop({
+    $labelEmplacementCertificat.Text = $_.Data.GetFileDropList()
+    $GroupBoxCertificat.BackColor = "#F0F0F0" # Gris par défaut
+
+    if ($labelEmplacementCertificat.Text -match ".*\.p(12|fx)$") {
+        $GroupBoxMotDePasse.Enabled = $true
+        $TextBoxMotDePasse.Text = ""
+        ResetGroupBoxCertificatListe
+        $TextBoxMotDePasse.Focus()
+    } else {
+        $GroupBoxMotDePasse.Enabled = $false
+        $TextBoxMotDePasse.Text = ""
+        ResetGroupBoxCertificatListe
+        CompleteDataGridViewCertificats
+        $GroupBoxCertificatListe.Enabled = $true
+        $ButtonExport.Focus()
+    }
+})
+
 $buttonSélectionCertificat.add_Click({
     if ($OpenFileDialog.ShowDialog() -eq "OK") {
         $labelEmplacementCertificat.Text = $OpenFileDialog.FileName
         
-        if ($OpenFileDialog.FileName -match ".*\.p(12|fx)$") {
+        if ($labelEmplacementCertificat.Text -match ".*\.p(12|fx)$") {
             $GroupBoxMotDePasse.Enabled = $true
             $TextBoxMotDePasse.Text = ""
             ResetGroupBoxCertificatListe
@@ -479,7 +526,7 @@ $ButtonExportSelection.add_Click({
     if (!$CheckBoxEnregistrerMemeRepertoire.Checked) {
         if ($FolderBrowser.ShowDialog() -eq "OK") { $Repertoire = $FolderBrowser.SelectedPath } 
                                              else { $Repertoire = $null }
-    } else { $Repertoire = (Split-Path -path $OpenFileDialog.FileName) }
+    } else { $Repertoire = (Split-Path -path $labelEmplacementCertificat.Text) }
     
     if ($Repertoire -ne $null) {
         $CertificatsSHA1Selectionne = New-Object System.Collections.ArrayList
@@ -496,7 +543,7 @@ $ButtonExport.add_Click({
     if (!$CheckBoxEnregistrerMemeRepertoire.Checked) {
         if ($FolderBrowser.ShowDialog() -eq "OK") { $Repertoire = $FolderBrowser.SelectedPath } 
                                              else { $Repertoire = $null }
-    } else { $Repertoire = (Split-Path -path $OpenFileDialog.FileName) }
+    } else { $Repertoire = (Split-Path -path $labelEmplacementCertificat.Text) }
     
     if ($Repertoire -ne $null) {
         RenommeCertificatExport -RepertoireCible $Repertoire
