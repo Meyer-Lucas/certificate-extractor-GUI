@@ -6,7 +6,9 @@ L'objectif de cet outil étant de simplifier et d'accéler la récupération des
 Cet outil pour fonctionner se base sur l'outil certutil ainsi que le magasin de certificat local pour lire le contenu des certificats, les exporter ou récupérer les autorités de certification.
 
 Les certificats exportés auront l'extension crt et seront encodés au format DER. Le nom sera de la forme suivante :
-```\[<Niveau> - \]<Common Name> (<Organisation>).crt```
+```
+[<Niveau> - ]<Common Name> (<Organisation>).crt
+```
 
 Où :
 * _Niveau_ correspond au niveau du certificat par rapport à l'autorité de certification racine (niveau 0) si disponible
