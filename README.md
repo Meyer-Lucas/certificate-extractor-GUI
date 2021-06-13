@@ -7,7 +7,7 @@ Cet outil pour fonctionner se base sur l'outil certutil ainsi que le magasin de 
 
 Les certificats exportés auront l'extension crt et seront encodés au format DER. Le nom sera de la forme suivante :
 ```
-[<Niveau> - ]<Common Name> (<Organisation>).crt
+[<Niveau> - ]<Common Name>[ (<Organisation>)].crt
 ```
 
 Où :
