@@ -42,4 +42,5 @@ Les OS suivants ont été testés et validés pour un fonctionnement complet de 
 
 ## Limitations connues
 L'outil ne peut gérer qu'un fichier à la fois, il ne sera pas possible de visualiser de multiples certificats avec une sélection, c'est aussi valable pour le Drag and Drop. Pour autant il est possible d'enchainer la visualisation de plusieurs certificats en sélectionnant un nouveau certificat à charger.
+
 L'outil ne va rechercher le certificat et sa chaîne de certification que pour le premier certificat trouvé. Un pfx avec toute sa chaîne de certification ne pose pas de problème. Ce serait des p7b qui contienne différents certificats qui pourrait ne pas afficher toutes les informations qui y sont contenues.
