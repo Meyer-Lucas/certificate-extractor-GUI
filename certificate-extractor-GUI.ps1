@@ -1,22 +1,22 @@
 <#
 
 .SYNOPSIS
-Script Powershell GUI permettant de facilement pouvoir extraire tous les éléments ou seulement certains des pfx/p12/p7b/pem/crt/cer/txt.
+Visualiser et extraire facilement des certificats ainsi que les autorités de certification associées avec un outil graphique.
 
 .DESCRIPTION
 
-Script PowerShell fonctionnant avec une interface graphique permettant de manipuler les certificats.
+Script PowerShell fonctionnant avec une interface graphique permettant de visualiser les certificats pfx/p12/p7b/pem/crt/cer/txt et exporter un ou plusieurs certificats.
 
 Cet outil a comme objectif de :
     - simplifier l'extraction des autorités de certification intermédiaires et racine pour les formats de certificat standards
-    - simplifier la transformation d'un p12/pfx vers des crt
+    - simplifier la transformation d'un p12/pfx/p7b vers des crt
 
 Cet outil est un substitut plus pratique et simple que les commandes OpenSSL ou bien d'avoir à importer les p12/pfx dans le magasin de certificat pour pouvoir extraire ses certificats.
 
 /!\ Le fonctionnement de l'outil s'appuie sur la commande certutil.exe qui limite le support à Windows ainsi que le magasin de certificat de Windows.
 
 .NOTE
-    Version : 2.1
+    Version : 2.2
     Auteur  : Lucas MEYER
     Github  : https://github.com/Meyer-Lucas/certificate-extractor-GUI
     Licence : MIT License
@@ -33,8 +33,8 @@ Add-Type -AssemblyName system.windows.forms
 
 [String]$Font           = "Segoe UI, 11"
 [String]$FontMin        = "Segoe UI, 8"
-[Int]$LargeurFenêtre    = 600
-[Int]$HauteurFenêtre    = 495
+[Int]$LargeurFenetre    = 600
+[Int]$HauteurFenetre    = 495
 
 $CertificatsSHA1        = New-Object System.Collections.ArrayList
 $CertificatsExpiration  = New-Object System.Collections.ArrayList
@@ -43,6 +43,16 @@ $CertificatsObjet       = New-Object System.Collections.ArrayList
 $OrdreTriCertificat     = New-Object System.Collections.ArrayList
 $CertificatNiveau       = New-Object System.Collections.ArrayList
 
+# Définition des extensions supportées suivant l'OS (les p7b ne sont supportées qu'à partir de Windows 8.1 / Serveur 2012 R2)
+$OSVersion = [environment]::OSVersion.Version
+if ($OSVersion.Major -eq 10 -or ($OSVersion.Major -eq 6 -and $OSVersion.Minor -eq 3)) {
+    $Extensions = "*.pfx; *.p12; *.p7b; *.pem; *.crt; *.cer; *.txt"
+    $ExtensionsFiltre = "pfx|p12|pem|p7b|cer|crt|txt"
+} else {
+    $Extensions = "*.pfx; *.p12; *.pem; *.crt; *.cer; *.txt"
+    $ExtensionsFiltre = "pfx|p12|pem|cer|crt|txt"
+}
+
 
 # ----------------------------------------------------- Fonctions ----------------------------------------------------
 
@@ -50,8 +60,8 @@ $CertificatNiveau       = New-Object System.Collections.ArrayList
 # Désactive la group box n°3, vide la liste de certificat et réinitialise la valeur de la check box d'export du p12
 function ResetGroupBoxCertificatListe {
     $GroupBoxCertificatListe.Enabled = $false
-    $DataGridViewCertificatListe.Rows.ForEach({$DataGridViewCertificatListe.Rows.Remove($_)})
-    $DataGridViewCertificatListe.Rows.ForEach({$DataGridViewCertificatListe.Rows.Remove($_)}) # Duplication de la ligne pour supprimer la ligne restante après première passe
+    $DataGridViewCertificatListe.Rows | ForEach-Object {$DataGridViewCertificatListe.Rows.Remove($_)}
+    $DataGridViewCertificatListe.Rows | ForEach-Object {$DataGridViewCertificatListe.Rows.Remove($_)} # Duplication de la ligne pour supprimer la ligne restante après première passe
     $CheckBoxEnregistrerMemeRepertoire.Checked = $true
     $CertificatsSHA1.Clear()
     $CertificatsExpiration.Clear()
@@ -65,11 +75,25 @@ function TestMotDePasse {
     return $?
 }
 
+# Traitement du nom des fichiers d'export de certificat par certutil sous Windows 8 et 2012
+function RenommeCertutilWin8Win2012 {
+    # Le switch CertificatArchive est à activer pour des archives de certificats qui sont les pfx, p12 et p7b
+    param([switch]$CertificatArchive, $NombreCertificat)
+    
+    if ($CertificatArchive) {
+        0..($NombreCertificat-1) | ForEach-Object {
+            Move-Item -Path "Blob0_1_$_.crt" -Destination (""+$CertificatsSHA1[$_]+".crt")
+        }
+    } else {
+        Move-Item -Path "Blob0_0.crt" -Destination (""+$CertificatsSHA1[$NombreCertificat]+".crt")
+    }
+}
+
 # Parsing des pfx/p12
 function ParsingPfxP12 {
-    $SortieCertutil = certutil.exe -p $TextBoxMotDePasse.Text -dump $labelEmplacementCertificat.Text
+    $SortieCertutil = certutil.exe -p $TextBoxMotDePasse.Text -dump -split $labelEmplacementCertificat.Text
     
-    $SortieCertutil | Select-String -CaseSensitive "sha1" | ForEach-Object { $CertificatsSHA1.Add($_.ToString().Split(" ")[-1]) }
+    $SortieCertutil | Select-String -CaseSensitive "sha1" | ForEach-Object { $CertificatsSHA1.Add($_.ToString().Split(":")[-1].Replace(" ","")) }
     $SortieCertutil | Select-String -CaseSensitive "After" | ForEach-Object { $CertificatsExpiration.Add($_.ToString().Substring(12)) }
 
     $switch = $true
@@ -80,7 +104,8 @@ function ParsingPfxP12 {
         $switch = !$switch
     }
     
-    certutil.exe -p $TextBoxMotDePasse.Text -dump -split -silent $labelEmplacementCertificat.Text
+    # Traitement du nom de certutil sur Windows 8 et 2012
+    if ($OSVersion.Major -eq 6) { RenommeCertutilWin8Win2012 -CertificatArchive -NombreCertificat $CertificatsSHA1.Count }
 }
 
 # Parsing de la sortie de certutil pour tous les autres types de certificats
@@ -95,7 +120,7 @@ function ParsingCertsCertutil {
     # Variable pour retenir si l'on parse un bloc avec 4 espaces
     $InterieurBloc = $false
 
-    $SortieCertutil.ForEach({
+    $SortieCertutil | ForEach-Object {
         if ($_ -match "^    ") {
             if (!$InterieurBloc) { $BlocsEspaces++ }
             $InterieurBloc = $true
@@ -103,12 +128,12 @@ function ParsingCertsCertutil {
         
         if ($InterieurBloc -and $BlocsEspaces -eq 2) { $emetteur += $_.Trim() + ", " }
         if ($InterieurBloc -and $BlocsEspaces -eq 3) { $objet += $_.Trim() + ", " }
-    })
+    }
 
     $CertificatsObjet.Add($objet.Substring(0,$objet.Length-2))
     $CertificatsEmetteur.Add($emetteur.Substring(0,$emetteur.Length-2))
     $CertificatsExpiration.Add(($SortieCertutil -match "NotAfter")[0].Substring(($SortieCertutil -match "NotAfter")[0].IndexOf(":")+1).Trim())
-    $CertificatsSHA1.Add(($SortieCertutil -match "(sha1)")[-1].Split(" ")[-1])
+    $CertificatsSHA1.Add(($SortieCertutil -match "(sha1)")[-1].Split(":")[-1].Replace(" ",""))
 }
 
 # Parsing des p7b
@@ -124,6 +149,9 @@ function ParsingP7b {
     }
 
     for ($i = 0; $i -lt $DebutSectionCertificat.Count; $i++) { ParsingCertsCertutil -SortieCertutil ($SortieCertutil[($DebutSectionCertificat[$i]+1)..($FinSectionCertificat[$i]-1)]) }
+
+    # Traitement du nom de certutil sur Windows 8 et 2012
+    if ($OSVersion.Major -eq 6) { RenommeCertutilWin8Win2012 -CertificatArchive -NombreCertificat $DebutSectionCertificat.Count }
 }
 
 # Parsing des autres certificats, vérifie si c'est encodé en DER et si ce n'est pas le cas une identification de la présence de plusieurs certificats a lieu
@@ -142,10 +170,14 @@ function ParsingCerts {
                 ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split certTemp.pem)
                 Remove-Item certTemp.pem
                 $Certificat = $Certificat.Substring($Jonction)
+                # Traitement du nom de certutil sur Windows 8 et 2012
+                if ($OSVersion.Major -eq 6) { RenommeCertutilWin8Win2012 -NombreCertificat ($CertificatsSHA1.Count-1) }
             }
             $Certificat | Out-File -FilePath certTemp.pem
             ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split certTemp.pem)
             Remove-Item certTemp.pem
+            # Traitement du nom de certutil sur Windows 8 et 2012
+            if ($OSVersion.Major -eq 6) { RenommeCertutilWin8Win2012 -NombreCertificat ($CertificatsSHA1.Count-1) }
         } else {
             $DebutCert = New-Object System.Collections.ArrayList
             $FinCert = New-Object System.Collections.ArrayList
@@ -159,9 +191,15 @@ function ParsingCerts {
                 $Certificat[$DebutCert[$i]..$FinCert[$i]] | Out-File -FilePath certTemp.pem
                 ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split certTemp.pem)
                 Remove-Item certTemp.pem
+                # Traitement du nom de certutil sur Windows 8 et 2012
+                if ($OSVersion.Major -eq 6) { RenommeCertutilWin8Win2012 -NombreCertificat $i }
             }
         }
-    } else { ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split $labelEmplacementCertificat.Text) }
+    } else { 
+        ParsingCertsCertutil -SortieCertutil (certutil.exe -dump -split $labelEmplacementCertificat.Text) 
+        # Traitement du nom de certutil sur Windows 8 et 2012
+        if ($OSVersion.Major -eq 6) { RenommeCertutilWin8Win2012 -NombreCertificat 0 }
+    }
 }
 
 # Recherche de la présence d'un certificat racine
@@ -235,17 +273,18 @@ function CompleteDataGridViewCertificats {
     
     # Ajout des certificats dans le DataGridView
     $i = 0
-    $OrdreTriCertificat.ForEach({
+    $OrdreTriCertificat | ForEach-Object {
         $DataGridViewCertificatListe.Rows.Add($CertificatNiveau[$i], $CertificatsExpiration[$_], $CertificatsObjet[$_], $CertificatsEmetteur[$_])
+        $DataGridViewCertificatListe.Rows[$i].Selected = $false
         $i++
-    })
+    }
 }
 
 # Fonction chargée de renommer les certificats qui ont étés sélectionnés et de les exporter
 function RenommeCertificatExport {
     param([string]$RepertoireCible, $CertificatsSHA1Export = $CertificatsSHA1)
     $Certificats = Get-ChildItem -File $RepertoireTemp.FullName
-    $Certificats.ForEach({ 
+    $Certificats | ForEach-Object { 
         for ($i = 0 ; $i -lt $CertificatsSHA1.Count ; $i++) {
             if ($_.ToString() -match $CertificatsSHA1[$i] -and $CertificatsSHA1Export -contains $CertificatsSHA1[$i]) {
                 $Nom = $CertificatsObjet[$i].Substring($CertificatsObjet[$i].IndexOf("CN=")).Split(",")[0].Substring(3).Replace("*","_")
@@ -255,18 +294,18 @@ function RenommeCertificatExport {
                 Copy-Item -Force $_.FullName -Destination ($RepertoireCible + "\" + $Nom)
             }
         }
-    })
+    }
 }
 
 
 # ---------------------------------------------------- Gestion GUI ---------------------------------------------------
 
 
-$fenêtreCertificateExtractor = New-Object System.Windows.Forms.Form -Property @{
-    Height = $HauteurFenêtre
-    Width = $LargeurFenêtre
+$fenetreCertificateExtractor = New-Object System.Windows.Forms.Form -Property @{
+    Height = $HauteurFenetre
+    Width = $LargeurFenetre
     StartPosition = 'CenterScreen'
-    Text = 'Certificate Extractor'
+    Text = 'Certificate Extractor GUI'
     Font = $Font
     Autosize = $false
     SizeGripStyle = "Hide"
@@ -282,58 +321,58 @@ $GroupBoxCertificat = New-Object System.Windows.Forms.GroupBox -Property @{
     Text = "1 - Choix du certificat : "
     Location = "10, 10"
     Height = 100
-    Width = $LargeurFenêtre - 30
+    Width = $LargeurFenetre - 30
     Padding = 0
     Font = "Segoe UI, 10"
     AllowDrop = $true
 }
-$fenêtreCertificateExtractor.Controls.Add($GroupBoxCertificat)
+$fenetreCertificateExtractor.Controls.Add($GroupBoxCertificat)
 
 $GroupBoxMotDePasse = New-Object System.Windows.Forms.GroupBox -Property @{
     Text = "2 - Mot de passe du certificat : "
     Location = "10, 120"
     Height = 100
-    Width = $LargeurFenêtre - 30
+    Width = $LargeurFenetre - 30
     Padding = 0
     Font = "Segoe UI, 10"
     Enabled = $False
 }
-$fenêtreCertificateExtractor.Controls.Add($GroupBoxMotDePasse)
+$fenetreCertificateExtractor.Controls.Add($GroupBoxMotDePasse)
 
 $GroupBoxCertificatListe = New-Object System.Windows.Forms.GroupBox -Property @{
     Text = "3 - Liste des certificats contenus : "
     Location = "10, 230"
     Height = 220
-    Width = $LargeurFenêtre - 30
+    Width = $LargeurFenetre - 30
     Padding = 0
     Font = "Segoe UI, 10"
     Enabled = $false
 }
-$fenêtreCertificateExtractor.Controls.Add($GroupBoxCertificatListe)
+$fenetreCertificateExtractor.Controls.Add($GroupBoxCertificatListe)
 
 # -------------------- Contenu de la GroupBox n°1 : recherche du certificat
 
-$buttonSélectionCertificat = New-Object System.Windows.Forms.Button -Property @{
+$buttonSelectionCertificat = New-Object System.Windows.Forms.Button -Property @{
     Text = "Ouvrir"
     Location = "20, 38"
     Font = $Font
     Autosize = $true
     BackColor = "#E1E1E1"
 }
-$GroupBoxCertificat.Controls.Add($buttonSélectionCertificat)
+$GroupBoxCertificat.Controls.Add($buttonSelectionCertificat)
 
 $labelEmplacementCertificat = New-Object System.Windows.Forms.Label -Property @{
     Text = "Pas de certificat sélectionné"
     TextAlign = "MiddleLeft"
     Location = "120, 20"
-    Width = ($LargeurFenêtre-170)
+    Width = ($LargeurFenetre-170)
     Height = 70
     Font = $Font
 }
 $GroupBoxCertificat.Controls.Add($labelEmplacementCertificat)
 
 $OpenFileDialog = New-Object System.Windows.Forms.OpenFileDialog -Property @{
-	Filter = 'Certificat (*.pfx; *.p12; *.p7b; *.pem; *.crt; *.cer; *.txt)|*.pfx;*.p12;*.p7b;*.pem;*.crt;*.cer;*.txt'
+	Filter = "Certificat ($Extensions)|$Extensions"
     FileName = ""
     Title = "Choix du certificat pour Certificate Extractor"
 }
@@ -347,7 +386,7 @@ $TextBoxMotDePasse = New-Object System.Windows.Forms.TextBox -Property @{
     Enabled = $True
     ReadOnly = $False
     Font = $Font
-    Width = $LargeurFenêtre - 50
+    Width = $LargeurFenetre - 50
     Height = 30
     PasswordChar = "*"
 }
@@ -364,7 +403,7 @@ $GroupBoxMotDePasse.Controls.Add($CheckBoxMotDePasseClair)
 
 $ButtonValidationMotDePasse = New-Object System.Windows.Forms.Button -Property @{
     Text = "Valider"
-    Location = (""+($LargeurFenêtre - 114)+", 55")
+    Location = (""+($LargeurFenetre - 114)+", 55")
     Font = $Font
     Autosize = $true
 }
@@ -373,7 +412,7 @@ $GroupBoxMotDePasse.Controls.Add($ButtonValidationMotDePasse)
 # -------------------- Contenu de la GroupBox n°3 : Visualisation des certificats et export
 
 $DataGridViewCertificatListe = New-Object System.Windows.Forms.DataGridView -Property @{
-    Width = $LargeurFenêtre - 50
+    Width = $LargeurFenetre - 50
     Height = 150
     Location = "10, 20"
     Font = $FontMin
@@ -397,7 +436,7 @@ $DataGridViewCertificatListe.Columns[2].Name = "Objet"
 $DataGridViewCertificatListe.Columns[3].Name = "Emetteur"
 
 # Empêchement de trier les différentes colonnes
-$DataGridViewCertificatListe.Columns.ForEach({ $_.SortMode = 0 })
+$DataGridViewCertificatListe.Columns | ForEach-Object { $_.SortMode = 0 }
 
 $CheckBoxEnregistrerMemeRepertoire = New-Object System.Windows.Forms.CheckBox -Property @{
     Font = $FontMin
@@ -411,7 +450,7 @@ $GroupBoxCertificatListe.Controls.Add($CheckBoxEnregistrerMemeRepertoire)
 
 $ButtonExportSelection = New-Object System.Windows.Forms.Button -Property @{
     Text = "Exporter la sélection"
-    Location = (""+($LargeurFenêtre - 280)+", 178")
+    Location = (""+($LargeurFenetre - 280)+", 178")
     Font = $Font
     Autosize = $true
 }
@@ -419,7 +458,7 @@ $GroupBoxCertificatListe.Controls.Add($ButtonExportSelection)
 
 $ButtonExport = New-Object System.Windows.Forms.Button -Property @{
     Text = "Exporter"
-    Location = (""+($LargeurFenêtre - 114)+", 178")
+    Location = (""+($LargeurFenetre - 114)+", 178")
     Font = $Font
     Autosize = $true
 }
@@ -436,8 +475,8 @@ $FolderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog -Property @
 
 # Lorsque qu'un drag de fichier rentre dans la fenêtre, affichage du premier groupbox dans une couleur afin d'indiquer que le fichier peut être drop
 # Bleu clair si le drag ne contient qu'un fichier au format accepté, sinon rouge
-$fenêtreCertificateExtractor.add_DragOver({
-    if ($_.Data.GetFileDropList().Count -eq 1 -and $_.Data.GetFileDropList() -match ".*\.(pfx|p12|pem|p7b|cer|crt|txt)$") {
+$fenetreCertificateExtractor.add_DragOver({
+    if ($_.Data.GetFileDropList().Count -eq 1 -and $_.Data.GetFileDropList() -match ".*\.($ExtensionsFiltre)$") {
         $GroupBoxCertificat.BackColor = "#DFDFFF" # Bleu clair
     } else {
         $GroupBoxCertificat.BackColor = "#FFDFDF" # Rouge clair
@@ -445,18 +484,23 @@ $fenêtreCertificateExtractor.add_DragOver({
 })
 
 # Lorsque le drag sort de la fenêtre, remise de la couleur par défaut du groupbox
-$fenêtreCertificateExtractor.add_DragLeave({
+$fenetreCertificateExtractor.add_DragLeave({
     $GroupBoxCertificat.BackColor = "#F0F0F0" # Gris par défaut
 })
 
 # Lorsque le drag parvient à la groupbox, affichage que le drop est possible si les conditions du fichier est respecté
 $GroupBoxCertificat.add_DragEnter({
-    if ($_.Data.GetFileDropList().Count -eq 1 -and $_.Data.GetFileDropList() -match ".*\.(pfx|p12|pem|p7b|cer|crt|txt)$") {
+    if ($_.Data.GetFileDropList().Count -eq 1 -and $_.Data.GetFileDropList() -match ".*\.($ExtensionsFiltre)$") {
         $GroupBoxCertificat.BackColor = "#DFDFFF" # Bleu clair
         $_.Effect = "Copy"
     } else {
         $GroupBoxCertificat.BackColor = "#FFDFDF" # Rouge clair
     }
+})
+
+# Lorsque le drag sort du groupbox, remise de la couleur par défaut du groupboxm prévoit le cas d'un drop non autorisé dans le groupbox
+$GroupBoxCertificat.add_DragLeave({
+    $GroupBoxCertificat.BackColor = "#F0F0F0" # Gris par défaut
 })
 
 # Lorsque le drop arrive dans le groupbox
@@ -479,7 +523,7 @@ $GroupBoxCertificat.add_DragDrop({
     }
 })
 
-$buttonSélectionCertificat.add_Click({
+$buttonSelectionCertificat.add_Click({
     if ($OpenFileDialog.ShowDialog() -eq "OK") {
         $labelEmplacementCertificat.Text = $OpenFileDialog.FileName
         
@@ -530,7 +574,7 @@ $ButtonExportSelection.add_Click({
     
     if ($Repertoire -ne $null) {
         $CertificatsSHA1Selectionne = New-Object System.Collections.ArrayList
-        $DataGridViewCertificatListe.SelectedRows.ForEach({ $CertificatsSHA1Selectionne.Add($CertificatsSHA1[$CertificatsObjet.IndexOf($_.Cells.Item("Objet").Value)]) })
+        $DataGridViewCertificatListe.SelectedRows | ForEach-Object { $CertificatsSHA1Selectionne.Add($CertificatsSHA1[$CertificatsObjet.IndexOf($_.Cells.Item("Objet").Value)]) }
 
         RenommeCertificatExport -RepertoireCible $Repertoire -CertificatsSHA1Export $CertificatsSHA1Selectionne
 
@@ -556,10 +600,15 @@ $ButtonExport.add_Click({
 # ---------------------------------------------- Affichage de la fenêtre ---------------------------------------------
 
 
-$RepertoireTemp = New-Item -ItemType Directory ($env:TEMP+"\Certificate-Extractor-" + (Get-Random -Maximum 99999))
-Set-Location $RepertoireTemp.FullName
+# Le script ne se lancera que si l'OS est un Windows 8 / Serveur 2012 au minimum
+if ($OSVersion.Major -eq 10 -or ($OSVersion.Major -eq 6 -and $OSVersion.Minor -ge 2)) {
+    $RepertoireTemp = New-Item -ItemType Directory ($env:TEMP+"\Certificate-Extractor-" + (Get-Random -Maximum 99999))
+    Set-Location $RepertoireTemp.FullName
 
-$fenêtreCertificateExtractor.ShowDialog() | Out-Null
+    $fenetreCertificateExtractor.ShowDialog() | Out-Null
 
-Set-Location $env:TEMP
-Remove-Item -Recurse -Path $RepertoireTemp.FullName
+    Set-Location $env:TEMP
+    Remove-Item -Recurse -Path $RepertoireTemp.FullName
+} else {
+    [System.Windows.Forms.MessageBox]::Show("Cet outil nécessite d'être lancé sur Windows 8 ou Windows Serveur 2012 au minimum pour fonctionner correctement. Merci de le relancer sur un OS supporté.",'OS non supporté','OK','Error')
+}

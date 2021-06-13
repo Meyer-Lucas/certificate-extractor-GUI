@@ -1,4 +1,16 @@
-#CHANGELOG des différentes versions de Certificate Extractor GUI
+# CHANGELOG des différentes versions de Certificate Extractor GUI
+
+## 2.2
+Validation du fonctionnement pour les OS suivants : 
+* Windows 10
+* Windows Serveur 2019
+* Windows Serveur 2016
+* Windows 8.1
+* Windows Serveur 2012 R2
+* Windows 8 (les p7b ne sont pas supportés)
+* Windows 2012 (les p7b ne sont pas supportés)
+
+Ajout d'une vérification de l'OS et message d'avertissement si l'OS n'est pas supporté par le script.
 
 ## 2.1
 Ajout de fonctionnalité :
