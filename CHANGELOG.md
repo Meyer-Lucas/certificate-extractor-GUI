@@ -1,5 +1,13 @@
 # CHANGELOG des différentes versions de Certificate Extractor GUI
 
+## 2.2.2
+Correction sur l'accès au répertoire temporaire qui peut ne pas fonctionner correctement avec l'utilisation de profil itinérant.
+La variable système TEMP n'est plus utilisé au profit de LOCALAPPDATA\Temp qui ne provoque aucune erreur.
+
+## 2.2.1
+Correction de l'encodage des caractères pour l'exe.
+Les caractères accentués n'étaient pas correctement affichés et provoquait des erreurs de fonctionnement.
+
 ## 2.2
 Validation du fonctionnement pour les OS suivants : 
 * Windows 10
