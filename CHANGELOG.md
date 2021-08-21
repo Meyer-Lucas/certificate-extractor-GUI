@@ -1,5 +1,8 @@
 # CHANGELOG des différentes versions de Certificate Extractor GUI
 
+## 2.2.4
+Correction de l'affichage de la fenêtre avec l'exécution du ps1 où aucun espacement n'apparaissait en bas et à droite contrairement avec l'exe.
+
 ## 2.2.3
 Vérification du support et du bon fonctionnement de l'application sur Windows 11.
 Ajout de la version, de l'auteur et du lien Github vers l'outil.
