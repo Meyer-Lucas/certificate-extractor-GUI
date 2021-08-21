@@ -14,5 +14,5 @@ ps2exe -inputFile .\certificate-extractor-GUI.ps1 `
     -title "Certificate Generator GUI" `
     -description "Visualiser et extraire facilement des certificats ainsi que les autorités de certification associées avec un outil graphique." `
     -copyright "Meyer Lucas - MIT License" `
-    -version "2.2.2" `
+    -version "2.2.3" `
     -supportOS

@@ -32,6 +32,7 @@ Les fonctionnalités secondaires sont les suivantes :
 
 ## OS Supportés 
 Les OS suivants ont été testés et validés pour un fonctionnement complet de l'outil :
+* Windows 11
 * Windows 10
 * Windows Serveur 2019
 * Windows Serveur 2016

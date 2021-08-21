@@ -1,5 +1,9 @@
 # CHANGELOG des différentes versions de Certificate Extractor GUI
 
+## 2.2.3
+Vérification du support et du bon fonctionnement de l'application sur Windows 11.
+Ajout de la version, de l'auteur et du lien Github vers l'outil.
+
 ## 2.2.2
 Correction sur l'accès au répertoire temporaire qui peut ne pas fonctionner correctement avec l'utilisation de profil itinérant.
 La variable système TEMP n'est plus utilisé au profit de LOCALAPPDATA\Temp qui ne provoque aucune erreur.
